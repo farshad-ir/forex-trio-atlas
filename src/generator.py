@@ -1,57 +1,70 @@
 """
 Generator for Forex Trio Atlas.
 
-The generator converts Trio and Variant definitions into
-JSON-compatible image instructions.
+The generator converts semantic Trio and Variant definitions
+into JSON-compatible image instructions.
 
-It does not render images.
+It does not:
+
+    - classify Trios
+    - define Weak Relations
+    - calculate Weak Relations
+    - calculate Variant membership
+    - calculate Variant numbers
+    - create folders
+    - save JSON files
+    - render PNG files
+
+Those responsibilities belong to other layers.
 
 Architecture:
 
     transformer.py
           |
+          | Main Trio definition
+          v
+    orchestrator.py
+          |
+          | Variant JSON definitions
           v
     generator.py
           |
-          | JSON-compatible data
+          | image instructions
           v
     renderer.py
           |
           v
-       PNG image
+       PNG images
+
+The generator is intentionally simple:
+
+    semantic definition in
+            |
+            v
+    image instruction out
+
+For Variants, all relation information is taken directly from
+the existing Variant JSON definition. The generator contains
+no second definition of the 13 Weak Relations.
 """
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 try:
     from .config import CANDLE_SPACING
-    from .transformer import (
-        DIRECTIONS,
-        VARIANTS_PER_DIRECTION,
-        trio_from_number,
-        variant_from_number,
-    )
 except ImportError:
     from config import CANDLE_SPACING
-    from transformer import (
-        DIRECTIONS,
-        VARIANTS_PER_DIRECTION,
-        trio_from_number,
-        variant_from_number,
-    )
 
 
 # ----------------------------------------------------------------------
 # GENERATION SETTINGS
 # ----------------------------------------------------------------------
 
-BODY_SIZE = 1.0
-WICK_SIZE = 0.5
+BODY_UNIT = 5.0
+WICK_SIZE = 7.5
 
-# Relative x positions are controlled by config.py.
 CANDLE_X_POSITIONS = (
     0.0,
     CANDLE_SPACING,
@@ -60,48 +73,13 @@ CANDLE_X_POSITIONS = (
 
 
 # ----------------------------------------------------------------------
-# WEAK RELATION VALUES
+# STRICT TRIO RELATION VALUES
 # ----------------------------------------------------------------------
 #
-# Each weak relation is represented by three rank values for A, B, C.
+# These values are only the current geometric representation used
+# for the four strict Main Trio classes.
 #
-# The actual magnitude is irrelevant here.
-# Only the ordering matters.
-#
-# 1  A=B=C
-# 2  A=B<C
-# 3  A=B>C
-# 4  A=C<B
-# 5  A=C>B
-# 6  B=C<A
-# 7  B=C>A
-# 8  A<B<C
-# 9  A<C<B
-# 10 B<A<C
-# 11 B<C<A
-# 12 C<A<B
-# 13 C<B<A
-# ----------------------------------------------------------------------
-
-WEAK_RELATION_VALUES = {
-    1: (1.0, 1.0, 1.0),
-    2: (1.0, 1.0, 2.0),
-    3: (2.0, 2.0, 1.0),
-    4: (1.0, 2.0, 1.0),
-    5: (2.0, 1.0, 2.0),
-    6: (2.0, 1.0, 1.0),
-    7: (1.0, 2.0, 2.0),
-    8: (0.0, 1.0, 2.0),
-    9: (0.0, 2.0, 1.0),
-    10: (1.0, 0.0, 2.0),
-    11: (2.0, 0.0, 1.0),
-    12: (1.0, 2.0, 0.0),
-    13: (2.0, 1.0, 0.0),
-}
-
-
-# ----------------------------------------------------------------------
-# STRICT RELATION VALUES
+# They are not the 13 Weak Relations.
 # ----------------------------------------------------------------------
 
 STRICT_RELATION_VALUES = {
@@ -117,42 +95,150 @@ STRICT_RELATION_VALUES = {
 # ----------------------------------------------------------------------
 
 
-def _validate_trio_number(trio_number: int) -> None:
-    """Validate a Trio number."""
+def _validate_direction(
+    direction: str,
+) -> None:
+    """Validate a three-candle direction string."""
 
-    if not isinstance(trio_number, int):
-        raise TypeError("trio_number must be an integer")
+    if not isinstance(direction, str):
+        raise TypeError(
+            "direction must be a string"
+        )
 
-    if not 1 <= trio_number <= 512:
+    if len(direction) != 3:
         raise ValueError(
-            "trio_number must be between 1 and 512"
+            "direction must contain exactly three candles"
+        )
+
+    if any(
+        candle not in ("B", "S")
+        for candle in direction
+    ):
+        raise ValueError(
+            "direction may contain only B and S"
         )
 
 
+def _validate_trio_definition(
+    trio: dict[str, Any],
+) -> None:
+    """Validate the semantic definition of a Main Trio."""
+
+    required_keys = (
+        "number",
+        "direction",
+        "body_class",
+        "upper_class",
+        "lower_class",
+    )
+
+    for key in required_keys:
+        if key not in trio:
+            raise ValueError(
+                f"Trio definition is missing key: {key}"
+            )
+
+    _validate_direction(
+        trio["direction"]
+    )
+
+
+def _validate_variant_definition(
+    variant: dict[str, Any],
+) -> None:
+    """Validate the semantic definition of a Variant."""
+
+    required_keys = (
+        "number",
+        "direction",
+        "body_relation_number",
+        "body_relation",
+        "upper_relation_number",
+        "upper_relation",
+        "lower_relation_number",
+        "lower_relation",
+    )
+
+    for key in required_keys:
+        if key not in variant:
+            raise ValueError(
+                f"Variant definition is missing key: {key}"
+            )
+
+    _validate_direction(
+        variant["direction"]
+    )
+
+    _validate_relation(
+        variant["body_relation"],
+        "body_relation",
+    )
+
+    _validate_relation(
+        variant["upper_relation"],
+        "upper_relation",
+    )
+
+    _validate_relation(
+        variant["upper_relation"],
+        "upper_relation",
+    )
+
+    _validate_relation(
+        variant["lower_relation"],
+        "lower_relation",
+    )
+
+
+def _validate_relation(
+    relation: Any,
+    field_name: str,
+) -> None:
+    """
+    Validate a relation supplied by the Variant JSON.
+
+    The generator does not know what the 13 relations are.
+    It only requires the already-stored relation data to contain
+    three numeric rank values.
+    """
+
+    if not isinstance(relation, (list, tuple)):
+        raise TypeError(
+            f"{field_name} must be a list or tuple"
+        )
+
+    if len(relation) != 3:
+        raise ValueError(
+            f"{field_name} must contain three values"
+        )
+
+    for value in relation:
+        if not isinstance(
+            value,
+            (int, float),
+        ):
+            raise TypeError(
+                f"{field_name} values must be numeric"
+            )
+
+
 # ----------------------------------------------------------------------
-# RELATION HELPERS
+# STRICT RELATION HELPERS
 # ----------------------------------------------------------------------
 
 
-def _strict_values(class_name: str) -> tuple[float, float, float]:
-    """Return rank values for one strict relation."""
+def _strict_values(
+    class_name: str,
+) -> tuple[float, float, float]:
+    """
+    Return geometric values for one strict Main Trio class.
+    """
 
     try:
         return STRICT_RELATION_VALUES[class_name]
     except KeyError as exc:
         raise ValueError(
             f"Unknown strict relation: {class_name}"
-        ) from exc
-
-
-def _weak_values(relation_number: int) -> tuple[float, float, float]:
-    """Return rank values for one weak relation."""
-
-    try:
-        return WEAK_RELATION_VALUES[relation_number]
-    except KeyError as exc:
-        raise ValueError(
-            f"Invalid weak relation number: {relation_number}"
         ) from exc
 
 
@@ -165,8 +251,11 @@ def _build_candle(
     index: int,
     direction: str,
     body_center: float,
+    body_size: float,
     upper_rank: float,
     lower_rank: float,
+    top: float,
+    bottom: float,
 ) -> dict[str, Any]:
     """
     Build one OHLC candle.
@@ -176,13 +265,16 @@ def _build_candle(
         S = bearish
 
     body_center:
-        Position of the candle body center.
+        Current geometric body-center value.
+
+    body_size:
+        Current geometric body size.
 
     upper_rank:
-        Relative High ordering value.
+        Current geometric upper value.
 
     lower_rank:
-        Relative Low ordering value.
+        Current geometric lower value.
     """
 
     if direction not in ("B", "S"):
@@ -191,37 +283,74 @@ def _build_candle(
         )
 
     if direction == "B":
-        open_value = body_center - BODY_SIZE / 2.0
-        close_value = body_center + BODY_SIZE / 2.0
-    else:
-        open_value = body_center + BODY_SIZE / 2.0
-        close_value = body_center - BODY_SIZE / 2.0
+        open_value = (
+            body_center
+            - body_size / 2.0
+        )
 
-    body_high = max(open_value, close_value)
-    body_low = min(open_value, close_value)
+        close_value = (
+            body_center
+            + body_size / 2.0
+        )
+
+    else:
+        open_value = (
+            body_center
+            + body_size / 2.0
+        )
+
+        close_value = (
+            body_center
+            - body_size / 2.0
+        )
+
+    body_high = max(
+        open_value,
+        close_value,
+    )
+
+    body_low = min(
+        open_value,
+        close_value,
+    )
 
     high_value = (
-        body_high
-        + WICK_SIZE
-        + upper_rank
+        top
+        + (upper_rank + 1) * 5
     )
 
     low_value = (
-        body_low
-        - WICK_SIZE
-        - lower_rank
+        bottom
+        + (lower_rank + 1) * 5
     )
 
     return {
-        "label": chr(ord("A") + index),
+        "label": chr(
+            ord("A") + index
+        ),
         "index": index,
         "x": CANDLE_X_POSITIONS[index],
         "direction": direction,
-        "open": round(open_value, 6),
-        "high": round(high_value, 6),
-        "low": round(low_value, 6),
-        "close": round(close_value, 6),
-        "body": round(body_center, 6),
+        "open": round(
+            open_value,
+            6,
+        ),
+        "high": round(
+            high_value,
+            6,
+        ),
+        "low": round(
+            low_value,
+            6,
+        ),
+        "close": round(
+            close_value,
+            6,
+        ),
+        "body": round(
+            body_center,
+            6,
+        ),
     }
 
 
@@ -233,6 +362,38 @@ def _build_candles(
 ) -> list[dict[str, Any]]:
     """Build the three candles A, B and C."""
 
+    body_sizes = tuple(
+        (value + 1.0) * BODY_UNIT
+        for value in body_values
+    )
+
+    body_highs: list[float] = []
+    body_lows: list[float] = []
+
+    for index in range(3):
+        body_center = body_values[index]
+        body_size = body_sizes[index]
+
+        body_highs.append(
+            body_center
+            + body_size / 2.0
+        )
+
+        body_lows.append(
+            body_center
+            - body_size / 2.0
+        )
+
+    top = max(body_highs)
+    bottom = min(body_lows)
+
+    lower_max = max(lower_values)
+
+    bottom = (
+        bottom
+        - 2.0 * (lower_max + 1) * 5
+    )
+
     candles: list[dict[str, Any]] = []
 
     for index in range(3):
@@ -241,8 +402,11 @@ def _build_candles(
                 index=index,
                 direction=direction[index],
                 body_center=body_values[index],
+                body_size=body_sizes[index],
                 upper_rank=upper_values[index],
                 lower_rank=lower_values[index],
+                top=top,
+                bottom=bottom,
             )
         )
 
@@ -250,25 +414,44 @@ def _build_candles(
 
 
 # ----------------------------------------------------------------------
-# TRIO
+# MAIN TRIO
 # ----------------------------------------------------------------------
 
 
-def _build_trio_image(
-    trio_number: int,
+def generate_trio(
+    trio: dict[str, Any],
 ) -> dict[str, Any]:
-    """Build the image instruction for one strict Trio."""
+    """
+    Generate image instructions for one Main Trio.
 
-    trio = trio_from_number(trio_number)
+    The Trio definition is supplied by the orchestrator.
+
+    The generator does not query transformer.py.
+    """
+
+    _validate_trio_definition(
+        trio
+    )
+
+    trio_number = int(
+        trio["number"]
+    )
+
+    trio_name = f"Trio{trio_number:03d}"
 
     direction = trio["direction"]
-    body_class = trio["body_class"]
-    upper_class = trio["upper_class"]
-    lower_class = trio["lower_class"]
 
-    body_values = _strict_values(body_class)
-    upper_values = _strict_values(upper_class)
-    lower_values = _strict_values(lower_class)
+    body_values = _strict_values(
+        trio["body_class"]
+    )
+
+    upper_values = _strict_values(
+        trio["upper_class"]
+    )
+
+    lower_values = _strict_values(
+        trio["lower_class"]
+    )
 
     candles = _build_candles(
         direction=direction,
@@ -278,109 +461,23 @@ def _build_trio_image(
     )
 
     return {
-        "name": f"Trio{trio_number:03d}",
+        "name": trio_name,
         "type": "trio",
         "number": trio_number,
         "direction": direction,
-        "body_class": body_class,
-        "upper_class": upper_class,
-        "lower_class": lower_class,
+        "body_class": trio["body_class"],
+        "upper_class": trio["upper_class"],
+        "lower_class": trio["lower_class"],
+        "json_path": (
+            f"{trio_name}/"
+            f"{trio_name}.json"
+        ),
+        "image_path": (
+            f"{trio_name}/"
+            f"{trio_name}.png"
+        ),
         "candles": candles,
     }
-
-
-# ----------------------------------------------------------------------
-# VARIANT COMPATIBILITY
-# ----------------------------------------------------------------------
-
-
-def _weak_relation_is_compatible(
-    strict_class: str,
-    relation_number: int,
-) -> bool:
-    """
-    Determine whether a weak relation belongs to a strict class.
-
-    Rising:
-        A <= B <= C
-
-    Falling:
-        A >= B >= C
-
-    Peak:
-        A <= B >= C
-
-    Valley:
-        A >= B <= C
-    """
-
-    values = _weak_values(relation_number)
-
-    a, b, c = values
-
-    if strict_class == "Rising":
-        return a <= b <= c
-
-    if strict_class == "Falling":
-        return a >= b >= c
-
-    if strict_class == "Peak":
-        return a <= b and c <= b
-
-    if strict_class == "Valley":
-        return a >= b and c >= b
-
-    raise ValueError(
-        f"Unknown strict class: {strict_class}"
-    )
-
-
-def _compatible_relations(
-    strict_class: str,
-) -> list[int]:
-    """Return all weak relation numbers compatible with a class."""
-
-    return [
-        relation_number
-        for relation_number in range(1, 14)
-        if _weak_relation_is_compatible(
-            strict_class,
-            relation_number,
-        )
-    ]
-
-
-# ----------------------------------------------------------------------
-# VARIANT NUMBER
-# ----------------------------------------------------------------------
-
-
-def _variant_number(
-    direction: str,
-    body_relation: int,
-    upper_relation: int,
-    lower_relation: int,
-) -> int:
-    """
-    Calculate the universal Variant number.
-
-    Numbering:
-
-        direction
-        body relation
-        upper relation
-        lower relation
-    """
-
-    direction_index = DIRECTIONS.index(direction)
-
-    return (
-        direction_index * VARIANTS_PER_DIRECTION
-        + (body_relation - 1) * 13 * 13
-        + (upper_relation - 1) * 13
-        + (lower_relation - 1)
-        + 1
-    )
 
 
 # ----------------------------------------------------------------------
@@ -388,22 +485,66 @@ def _variant_number(
 # ----------------------------------------------------------------------
 
 
-def _build_variant_image(
-    variant_number: int,
+def generate_variant(
+    variant: dict[str, Any],
     trio_number: int,
 ) -> dict[str, Any]:
-    """Build one Variant image instruction."""
+    """
+    Generate image instructions for one Variant.
 
-    variant = variant_from_number(variant_number)
+    The complete Variant definition comes directly from the
+    existing Variant JSON file.
+
+    No Weak Relation is reconstructed.
+
+    No Weak Relation is looked up.
+
+    No Variant number is calculated.
+
+    No Variant membership is calculated.
+
+    The relation rank values stored in the Variant JSON are
+    passed directly to the candle builder.
+    """
+
+    _validate_variant_definition(
+        variant
+    )
+
+    variant_number = int(
+        variant["number"]
+    )
+
+    variant_name = (
+        f"Variant{variant_number:05d}"
+    )
+
+    trio_name = (
+        f"Trio{trio_number:03d}"
+    )
 
     direction = variant["direction"]
-    body_relation = variant["body_relation"]
-    upper_relation = variant["upper_relation"]
-    lower_relation = variant["lower_relation"]
 
-    body_values = _weak_values(body_relation)
-    upper_values = _weak_values(upper_relation)
-    lower_values = _weak_values(lower_relation)
+    body_values = tuple(
+        float(value)
+        for value in variant[
+            "body_relation"
+        ]
+    )
+
+    upper_values = tuple(
+        float(value)
+        for value in variant[
+            "upper_relation"
+        ]
+    )
+
+    lower_values = tuple(
+        float(value)
+        for value in variant[
+            "lower_relation"
+        ]
+    )
 
     candles = _build_candles(
         direction=direction,
@@ -413,160 +554,36 @@ def _build_variant_image(
     )
 
     return {
-        "name": f"Variant{variant_number:05d}",
+        "name": variant_name,
         "type": "variant",
         "number": variant_number,
         "trio_number": trio_number,
         "direction": direction,
-        "body_relation": body_relation,
-        "upper_relation": upper_relation,
-        "lower_relation": lower_relation,
+        "body_relation_number": variant[
+            "body_relation_number"
+        ],
+        "body_relation": variant[
+            "body_relation"
+        ],
+        "upper_relation_number": variant[
+            "upper_relation_number"
+        ],
+        "upper_relation": variant[
+            "upper_relation"
+        ],
+        "lower_relation_number": variant[
+            "lower_relation_number"
+        ],
+        "lower_relation": variant[
+            "lower_relation"
+        ],
+        "json_path": (
+            f"{trio_name}/Variants/"
+            f"{variant_name}.json"
+        ),
+        "image_path": (
+            f"{trio_name}/Variants/"
+            f"{variant_name}.png"
+        ),
         "candles": candles,
     }
-
-
-# ----------------------------------------------------------------------
-# PUBLIC GENERATOR
-# ----------------------------------------------------------------------
-
-
-def generate_trio(
-    trio_number: int,
-    include_variants: bool = False,
-) -> dict[str, Any]:
-    """
-    Generate JSON-compatible data for one Trio.
-
-    Parameters
-    ----------
-    trio_number:
-        Number from 1 to 512.
-
-    include_variants:
-        False:
-            Generate only the Trio.
-
-        True:
-            Generate the Trio plus all compatible Variants.
-
-    Returns
-    -------
-    dict
-        JSON-compatible generator output.
-    """
-
-    _validate_trio_number(trio_number)
-
-    trio = trio_from_number(trio_number)
-
-    direction = trio["direction"]
-    body_class = trio["body_class"]
-    upper_class = trio["upper_class"]
-    lower_class = trio["lower_class"]
-
-    images: list[dict[str, Any]] = []
-
-    # --------------------------------------------------------------
-    # Main Trio
-    # --------------------------------------------------------------
-
-    images.append(
-        _build_trio_image(trio_number)
-    )
-
-    # --------------------------------------------------------------
-    # Compatible Variants
-    # --------------------------------------------------------------
-
-    if include_variants:
-
-        body_relations = _compatible_relations(
-            body_class
-        )
-
-        upper_relations = _compatible_relations(
-            upper_class
-        )
-
-        lower_relations = _compatible_relations(
-            lower_class
-        )
-
-        for body_relation in body_relations:
-            for upper_relation in upper_relations:
-                for lower_relation in lower_relations:
-
-                    variant_number = _variant_number(
-                        direction=direction,
-                        body_relation=body_relation,
-                        upper_relation=upper_relation,
-                        lower_relation=lower_relation,
-                    )
-
-                    images.append(
-                        _build_variant_image(
-                            variant_number=variant_number,
-                            trio_number=trio_number,
-                        )
-                    )
-
-    return {
-        "generator": "forex-trio-atlas",
-        "version": 1,
-        "trio": {
-            "number": trio_number,
-            "name": f"Trio{trio_number:03d}",
-            "direction": direction,
-            "body_class": body_class,
-            "upper_class": upper_class,
-            "lower_class": lower_class,
-        },
-        "include_variants": include_variants,
-        "image_count": len(images),
-        "images": images,
-    }
-
-
-# ----------------------------------------------------------------------
-# JSON OUTPUT
-# ----------------------------------------------------------------------
-
-
-def generate_json(
-    trio_number: int,
-    include_variants: bool = False,
-) -> str:
-    """Generate serialized JSON text."""
-
-    data = generate_trio(
-        trio_number=trio_number,
-        include_variants=include_variants,
-    )
-
-    return json.dumps(
-        data,
-        indent=2,
-        ensure_ascii=False,
-    )
-
-
-# ----------------------------------------------------------------------
-# COMMAND LINE TEST
-# ----------------------------------------------------------------------
-
-
-def main() -> int:
-    """Generate Trio001 for a manual test."""
-
-    print(
-        generate_json(
-            trio_number=1,
-            include_variants=False,
-        )
-    )
-
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

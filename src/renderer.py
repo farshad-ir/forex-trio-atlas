@@ -3,6 +3,10 @@ Renderer for Forex Trio Atlas.
 
 Consumes the JSON-compatible document produced by generator.py
 and renders the contained image instructions with Matplotlib.
+
+The renderer does not decide where an image belongs.
+The generator provides a relative image_path for every image,
+and the orchestrator supplies the Atlas root directory.
 """
 
 from __future__ import annotations
@@ -24,7 +28,10 @@ except ImportError:
 # CANDLE GEOMETRY
 # ----------------------------------------------------------------------
 
-def _draw_candle(ax, candle: dict[str, Any]) -> None:
+def _draw_candle(
+    ax,
+    candle: dict[str, Any],
+) -> None:
     """Draw one candlestick from a JSON candle definition."""
 
     x = float(candle["x"])
@@ -79,7 +86,10 @@ def _draw_candle(ax, candle: dict[str, Any]) -> None:
 # IMAGE RENDERING
 # ----------------------------------------------------------------------
 
-def render_image(image_data: dict[str, Any], output_path: str) -> None:
+def render_image(
+    image_data: dict[str, Any],
+    output_path: str,
+) -> None:
     """Render one image instruction to a PNG file."""
 
     candles = image_data["candles"]
@@ -103,10 +113,20 @@ def render_image(image_data: dict[str, Any], output_path: str) -> None:
     # AXIS LIMITS
     # --------------------------------------------------------------
 
-    x_values = [float(candle["x"]) for candle in candles]
+    x_values = [
+        float(candle["x"])
+        for candle in candles
+    ]
 
-    low_values = [float(candle["low"]) for candle in candles]
-    high_values = [float(candle["high"]) for candle in candles]
+    low_values = [
+        float(candle["low"])
+        for candle in candles
+    ]
+
+    high_values = [
+        float(candle["high"])
+        for candle in candles
+    ]
 
     x_min = min(x_values)
     x_max = max(x_values)
@@ -117,11 +137,25 @@ def render_image(image_data: dict[str, Any], output_path: str) -> None:
     x_range = max(x_max - x_min, 1.0)
     y_range = max(y_max - y_min, 1.0)
 
-    left = x_min - x_range * config.LEFT_MARGIN
-    right = x_max + x_range * config.RIGHT_MARGIN
+    left = (
+        x_min
+        - x_range * config.LEFT_MARGIN
+    )
 
-    bottom = y_min - y_range * config.BOTTOM_MARGIN
-    top = y_max + y_range * config.TOP_MARGIN
+    right = (
+        x_max
+        + x_range * config.RIGHT_MARGIN
+    )
+
+    bottom = (
+        y_min
+        - y_range * config.BOTTOM_MARGIN
+    )
+
+    top = (
+        y_max
+        + y_range * config.TOP_MARGIN
+    )
 
     ax.set_xlim(left, right)
     ax.set_ylim(bottom, top)
@@ -143,7 +177,15 @@ def render_image(image_data: dict[str, Any], output_path: str) -> None:
     # OUTPUT
     # --------------------------------------------------------------
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    output_directory = os.path.dirname(
+        output_path
+    )
+
+    if output_directory:
+        os.makedirs(
+            output_directory,
+            exist_ok=True,
+        )
 
     fig.savefig(
         output_path,
@@ -169,26 +211,41 @@ def render_document(
     """
     Render all image instructions contained in a Generator document.
 
-    Returns a list of generated file paths.
+    The image_path field supplied by the Generator determines the
+    relative location of each image.
+
+    output_directory:
+        Atlas root directory.
+
+    Returns:
+        List of generated file paths.
     """
 
     if output_directory is None:
         output_directory = config.OUTPUT_DIRECTORY
 
-    os.makedirs(output_directory, exist_ok=True)
+    os.makedirs(
+        output_directory,
+        exist_ok=True,
+    )
 
     generated_files: list[str] = []
 
     for image_data in document["images"]:
-        image_number = int(image_data["number"])
 
-        filename = config.OUTPUT_FILENAME_PATTERN.format(
-            number=image_number
+        relative_path = image_data.get(
+            "image_path"
         )
+
+        if not relative_path:
+            raise ValueError(
+                "Generator image data is missing "
+                "'image_path'"
+            )
 
         output_path = os.path.join(
             output_directory,
-            filename,
+            relative_path,
         )
 
         render_image(
@@ -196,7 +253,9 @@ def render_document(
             output_path,
         )
 
-        generated_files.append(output_path)
+        generated_files.append(
+            output_path
+        )
 
     return generated_files
 
@@ -209,7 +268,12 @@ def render_json_file(
     json_path: str,
     output_directory: str | None = None,
 ) -> list[str]:
-    """Read a Generator JSON file and render all contained images."""
+    """
+    Read a Generator JSON file and render all contained images.
+
+    The JSON document must contain image_path fields generated
+    by generator.py.
+    """
 
     with open(
         json_path,
@@ -248,7 +312,9 @@ def main() -> None:
         include_variants=False,
     )
 
-    generated_files = render_document(document)
+    generated_files = render_document(
+        document
+    )
 
     print("Rendered files:")
 
