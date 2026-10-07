@@ -26,9 +26,10 @@ from typing import Any
 
 try:
     from .geometry import build_geometry
+    from .relations import DEFAULT_STRICT_RELATION
 except ImportError:
     from geometry import build_geometry
-
+    from relations import DEFAULT_STRICT_RELATION
 
 
 
@@ -41,12 +42,6 @@ CANDLE_X_POSITIONS = (
 )
 
 
-STRICT_RELATION_VALUES = {
-    "Rising":  (0, 1, 2),
-    "Falling": (2, 1, 0),
-    "Peak":    (0, 2, 0),
-    "Valley":  (2, 0, 2),
-}
 
 
 
@@ -68,11 +63,11 @@ def generate_trio(
 
     direction = trio["direction"]
 
-    body_values = STRICT_RELATION_VALUES[ trio["body_class"] ]
+    body_values = DEFAULT_STRICT_RELATION[ trio["body_class"] ]
 
-    upper_values = STRICT_RELATION_VALUES[ trio["upper_class"] ]
+    upper_values = DEFAULT_STRICT_RELATION[ trio["upper_class"] ]
 
-    lower_values = STRICT_RELATION_VALUES[ trio["lower_class"] ]
+    lower_values = DEFAULT_STRICT_RELATION[ trio["lower_class"] ]
     
     geometry = build_geometry(
         direction     = trio["direction"],

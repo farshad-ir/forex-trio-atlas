@@ -15,6 +15,19 @@ Universal Variant space:
 """
 
 
+
+
+try:
+    from .relations import (
+        WEAK_RELATIONS,
+        WEAK_RELATION_NAMES,
+    )
+except ImportError:
+    from relations import (
+        WEAK_RELATIONS,
+        WEAK_RELATION_NAMES,
+    )
+
 # ----------------------------------------------------------------------
 # DIRECTIONS
 # ----------------------------------------------------------------------
@@ -43,66 +56,6 @@ CLASSES = (
 )
 
 
-# ----------------------------------------------------------------------
-# WEAK RELATIONS
-# ----------------------------------------------------------------------
-#
-# The 13 weak orderings of three values A, B, C.
-#
-# Each relation is represented by the rank of A, B and C.
-#
-# Example:
-#
-#     A=B<C
-#
-# means:
-#     A and B have the same value
-#     C is greater than both
-#
-# The numerical representation is only an internal representation.
-# The human-readable name is stored separately below.
-# ----------------------------------------------------------------------
-
-WEAK_RELATIONS = (
-    (0, 0, 0),  # A=B=C
-
-    (0, 0, 1),  # A=B<C
-    (1, 1, 0),  # A=B>C
-
-    (0, 1, 0),  # A=C<B
-    (1, 0, 1),  # A=C>B
-
-    (1, 0, 0),  # B=C<A
-    (0, 1, 1),  # B=C>A
-
-    (0, 1, 2),  # A<B<C
-    (0, 2, 1),  # A<C<B
-    (1, 0, 2),  # B<A<C
-    (1, 2, 0),  # B<C<A
-    (2, 0, 1),  # C<A<B
-    (2, 1, 0),  # C<B<A
-)
-
-
-WEAK_RELATION_NAMES = (
-    "A=B=C",
-
-    "A=B<C",
-    "A=B>C",
-
-    "A=C<B",
-    "A=C>B",
-
-    "B=C<A",
-    "B=C>A",
-
-    "A<B<C",
-    "A<C<B",
-    "B<A<C",
-    "B<C<A",
-    "C<A<B",
-    "C<B<A",
-)
 
 
 # ----------------------------------------------------------------------
